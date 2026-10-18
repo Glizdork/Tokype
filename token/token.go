@@ -10,6 +10,7 @@ const (
 	STRING  TokenType = "STRING"
 	ASSIGN  TokenType = "="
 	FLOAT   TokenType = "FLOAT"
+	NULL    TokenType = "NULL"
 
 	OPENLIST    TokenType = "["
 	RBRACKET    TokenType = "]"
@@ -51,6 +52,9 @@ const (
 	TO     TokenType = "TO"
 	STEP   TokenType = "STEP"
 	RETURN TokenType = "RETURN"
+
+	AS      TokenType = "AS"
+	INCLUDE TokenType = "INCLUDE"
 )
 
 var keywords = map[string]TokenType{
@@ -58,6 +62,7 @@ var keywords = map[string]TokenType{
 	"end":     END,
 	"true":    TRUE,
 	"false":   FALSE,
+	"null":    NULL,
 	"if":      IF,
 	"elif":    ELIF,
 	"else":    ELSE,
@@ -66,6 +71,8 @@ var keywords = map[string]TokenType{
 	"to":      TO,
 	"step":    STEP,
 	"return":  RETURN,
+	"as":      AS,
+	"include": INCLUDE,
 }
 
 func LookupIdent(ident string) TokenType {
@@ -78,4 +85,6 @@ func LookupIdent(ident string) TokenType {
 type Token struct {
 	Type    TokenType
 	Literal string
+	Line    int
+	Column  int
 }
