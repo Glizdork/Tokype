@@ -38,7 +38,9 @@ func (p *Program) String() string {
 }
 
 type Identifier struct {
-	Value string
+	Value  string
+	Line   int
+	Column int
 }
 
 func (i *Identifier) expressionNode() {}
@@ -77,10 +79,17 @@ func (bl *BooleanLiteral) String() string {
 	return "false"
 }
 
+type NullLiteral struct{}
+
+func (nl *NullLiteral) expressionNode() {}
+func (nl *NullLiteral) String() string  { return "null" }
+
 type InfixExpression struct {
 	Left     Expression
 	Operator string
 	Right    Expression
+	Line     int
+	Column   int
 }
 
 func (ie *InfixExpression) expressionNode() {}
@@ -116,7 +125,6 @@ func (bs *BlockStatement) String() string {
 	var out bytes.Buffer
 	for i, s := range bs.Statements {
 		if s != nil {
-			out.WriteString("    ")
 			out.WriteString(s.String())
 			if i < len(bs.Statements)-1 {
 				out.WriteString("\n")
@@ -143,12 +151,14 @@ func (fs *FunctionStatement) String() string {
 			params.WriteString(", ")
 		}
 	}
-	return "funct " + fs.Name.String() + "(" + params.String() + "):\n" + fs.Body.String() + "\nend"
+	return "funct " + fs.Name.String() + "(" + params.String() + "):\n" + indent(fs.Body.String(), 4) + "\nend"
 }
 
 type CallExpression struct {
 	Function  Expression
 	Arguments []Expression
+	Line      int
+	Column    int
 }
 
 func (ce *CallExpression) expressionNode() {}
@@ -200,8 +210,10 @@ func (ml *MapLiteral) String() string {
 }
 
 type IndexExpression struct {
-	Left  Expression
-	Index Expression
+	Left   Expression
+	Index  Expression
+	Line   int
+	Column int
 }
 
 func (ie *IndexExpression) expressionNode() {}
@@ -210,8 +222,10 @@ func (ie *IndexExpression) String() string {
 }
 
 type AssignIndexStatement struct {
-	Left  *IndexExpression
-	Value Expression
+	Left   *IndexExpression
+	Value  Expression
+	Line   int
+	Column int
 }
 
 func (ais *AssignIndexStatement) statementNode() {}
@@ -220,9 +234,11 @@ func (ais *AssignIndexStatement) String() string {
 }
 
 type SliceExpression struct {
-	Left  Expression
-	Start Expression
-	End   Expression
+	Left   Expression
+	Start  Expression
+	End    Expression
+	Line   int
+	Column int
 }
 
 func (se *SliceExpression) expressionNode() {}
@@ -256,14 +272,13 @@ type IfExpression struct {
 	Else        *BlockStatement
 }
 
-func (ie *IfExpression) expressionNode() {}
 func (ie *IfExpression) String() string {
 	var out bytes.Buffer
 	out.WriteString("if ")
 	out.WriteString(ie.Condition.String())
 	out.WriteString(":\n")
 	if ie.Consequence != nil {
-		out.WriteString(ie.Consequence.String())
+		out.WriteString(indent(ie.Consequence.String(), 4))
 	}
 	for _, alt := range ie.Alternative {
 		if alt != nil {
@@ -273,34 +288,38 @@ func (ie *IfExpression) String() string {
 	}
 	if ie.Else != nil {
 		out.WriteString("\nelse:\n")
-		out.WriteString(ie.Else.String())
+		out.WriteString(indent(ie.Else.String(), 4))
 	}
 	out.WriteString("\nend")
 	return out.String()
 }
+
+func (ie *IfExpression) expressionNode() {}
 
 type ElseIfExpression struct {
 	Condition   Expression
 	Consequence *BlockStatement
 }
 
-func (ei *ElseIfExpression) expressionNode() {}
 func (ei *ElseIfExpression) String() string {
 	var out bytes.Buffer
 	out.WriteString("elif ")
 	out.WriteString(ei.Condition.String())
 	out.WriteString(":\n")
 	if ei.Consequence != nil {
-		out.WriteString(ei.Consequence.String())
+		out.WriteString(indent(ei.Consequence.String(), 4))
 	}
 	return out.String()
 }
+
+func (ei *ElseIfExpression) expressionNode() {}
 
 type ForStatement struct {
 	Initialization *AssignStatement
 	Condition      Expression
 	Update         *AssignStatement
 	Body           *BlockStatement
+	Step           Expression
 }
 
 func (fs *ForStatement) statementNode()  {}
@@ -308,10 +327,19 @@ func (fs *ForStatement) expressionNode() {}
 func (fs *ForStatement) String() string {
 	var out bytes.Buffer
 	out.WriteString("for ")
-	out.WriteString(fs.Initialization.String())
-	out.WriteString(" to ")
+	if fs.Initialization != nil {
+		out.WriteString(fs.Initialization.String())
+	}
+	if fs.Condition != nil {
+		if infix, ok := fs.Condition.(*InfixExpression); ok {
+			out.WriteString(", ")
+			out.WriteString(infix.Right.String())
+		}
+	}
 	out.WriteString(":\n")
-	out.WriteString(fs.Body.String())
+	if fs.Body != nil {
+		out.WriteString(indent(fs.Body.String(), 4))
+	}
 	out.WriteString("\nend")
 	return out.String()
 }
@@ -327,7 +355,9 @@ func (ws *WhileStatement) String() string {
 	out.WriteString("while ")
 	out.WriteString(ws.Condition.String())
 	out.WriteString(":\n")
-	out.WriteString(ws.Body.String())
+	if ws.Body != nil {
+		out.WriteString(indent(ws.Body.String(), 4))
+	}
 	out.WriteString("\nend")
 	return out.String()
 }
@@ -345,4 +375,40 @@ func (rs *ReturnStatement) String() string {
 }
 
 type IncludeStatement struct {
+	Path      string
+	Namespace string
+}
+
+func (is *IncludeStatement) statementNode() {}
+func (is *IncludeStatement) String() string {
+	if is.Namespace != "" {
+		return "include \"" + is.Path + "\" as " + is.Namespace
+	}
+	return "include \"" + is.Path + "\""
+}
+
+type PrefixExpression struct {
+	Operator string
+	Right    Expression
+	Line     int
+	Column   int
+}
+
+func (pe *PrefixExpression) expressionNode() {}
+func (pe *PrefixExpression) String() string {
+	return "(" + pe.Operator + pe.Right.String() + ")"
+}
+
+func indent(text string, spaces int) string {
+	if text == "" {
+		return ""
+	}
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = prefix + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
