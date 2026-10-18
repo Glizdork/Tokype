@@ -2,7 +2,6 @@ package optimizer
 
 import (
 	"Tokype/ast"
-	"Tokype/evalut"
 	"Tokype/value"
 )
 
@@ -16,6 +15,8 @@ func (o *Optimizer) valueToLiteral(v value.Value) ast.Expression {
 		return &ast.BooleanLiteral{Value: v.Bool}
 	case value.ValString:
 		return &ast.StringLiteral{Value: v.Str}
+	case value.ValNull:
+		return &ast.NullLiteral{}
 	default:
 		return nil
 	}
@@ -75,6 +76,8 @@ func (o *Optimizer) hasVariables(node ast.Node) bool {
 		}
 	case *ast.FunctionStatement:
 		result = o.hasVariables(n.Body)
+	case *ast.PrefixExpression:
+		result = o.hasVariables(n.Right)
 	default:
 		result = false
 	}
@@ -84,40 +87,6 @@ func (o *Optimizer) hasVariables(node ast.Node) bool {
 	o.cacheMutex.Unlock()
 
 	return result
-}
-
-func (o *Optimizer) isSafeToEvaluate(expr ast.Expression) bool {
-	if expr == nil {
-		return false
-	}
-
-	switch n := expr.(type) {
-	case *ast.CallExpression:
-		if ident, ok := n.Function.(*ast.Identifier); ok {
-			if ident.Value == "get_time" || ident.Value == "input" {
-				return false
-			}
-		}
-		for _, arg := range n.Arguments {
-			if !o.isSafeToEvaluate(arg) {
-				return false
-			}
-		}
-		return true
-	case *ast.InfixExpression:
-		return o.isSafeToEvaluate(n.Left) && o.isSafeToEvaluate(n.Right)
-	case *ast.Identifier:
-		return false
-	case *ast.IntegerLiteral, *ast.FloatLiteral, *ast.StringLiteral, *ast.BooleanLiteral:
-		return true
-	default:
-		return true
-	}
-}
-
-func (o *Optimizer) isVariableDefined(ident *ast.Identifier, env *evalut.Environment) bool {
-	_, exists := env.Get(ident.Value)
-	return exists
 }
 
 func (o *Optimizer) hasSideEffects(funcName string) bool {

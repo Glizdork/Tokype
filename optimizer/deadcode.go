@@ -2,7 +2,7 @@ package optimizer
 
 import (
 	"Tokype/ast"
-	"Tokype/evalut"
+	"Tokype/evaluator"
 	"Tokype/value"
 )
 
@@ -37,8 +37,22 @@ func (o *Optimizer) removeDeadCode(node ast.Node) ast.Node {
 		return n
 
 	case *ast.IfExpression:
-		tempEnv := evalut.NewEnvironment()
-		result := evalut.Eval(n.Condition, tempEnv)
+		if o.hasUserFunctionCalls(n.Condition) {
+			if n.Consequence != nil {
+				n.Consequence = o.removeDeadCode(n.Consequence).(*ast.BlockStatement)
+			}
+			for i, elif := range n.Alternative {
+				elif.Consequence = o.removeDeadCode(elif.Consequence).(*ast.BlockStatement)
+				n.Alternative[i] = elif
+			}
+			if n.Else != nil {
+				n.Else = o.removeDeadCode(n.Else).(*ast.BlockStatement)
+			}
+			return n
+		}
+
+		tempEnv := evaluator.NewEnvironment()
+		result := evaluator.Eval(n.Condition, tempEnv)
 
 		if result.Type == value.ValBool && !result.Bool && !o.hasVariables(n.Condition) {
 			if n.Else != nil {
@@ -61,16 +75,18 @@ func (o *Optimizer) removeDeadCode(node ast.Node) ast.Node {
 
 	case *ast.ForStatement:
 		if condition, ok := n.Condition.(*ast.InfixExpression); ok {
-			tempEnv := evalut.NewEnvironment()
-			initResult := evalut.Eval(n.Initialization.Value, tempEnv)
-			endResult := evalut.Eval(condition.Right, tempEnv)
+			if !o.hasUserFunctionCalls(condition.Right) {
+				tempEnv := evaluator.NewEnvironment()
+				initResult := evaluator.Eval(n.Initialization.Value, tempEnv)
+				endResult := evaluator.Eval(condition.Right, tempEnv)
 
-			if !initResult.IsNil() && !endResult.IsNil() && !o.hasVariables(n.Initialization.Value) && !o.hasVariables(condition.Right) {
-				initVal, _ := initResult.ToFloat64()
-				endVal, _ := endResult.ToFloat64()
+				if !initResult.IsNil() && !endResult.IsNil() && !o.hasVariables(n.Initialization.Value) && !o.hasVariables(condition.Right) {
+					initVal, _ := initResult.ToFloat64()
+					endVal, _ := endResult.ToFloat64()
 
-				if initVal > endVal {
-					return &ast.BlockStatement{Statements: []ast.Node{}}
+					if initVal > endVal {
+						return &ast.BlockStatement{Statements: []ast.Node{}}
+					}
 				}
 			}
 		}
@@ -81,8 +97,15 @@ func (o *Optimizer) removeDeadCode(node ast.Node) ast.Node {
 		return n
 
 	case *ast.WhileStatement:
-		tempEnv := evalut.NewEnvironment()
-		result := evalut.Eval(n.Condition, tempEnv)
+		if o.hasUserFunctionCalls(n.Condition) {
+			if n.Body != nil {
+				n.Body = o.removeDeadCode(n.Body).(*ast.BlockStatement)
+			}
+			return n
+		}
+
+		tempEnv := evaluator.NewEnvironment()
+		result := evaluator.Eval(n.Condition, tempEnv)
 
 		if result.Type == value.ValBool && !result.Bool && !o.hasVariables(n.Condition) {
 			return &ast.BlockStatement{Statements: []ast.Node{}}

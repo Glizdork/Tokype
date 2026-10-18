@@ -2,7 +2,7 @@ package optimizer
 
 import (
 	"Tokype/ast"
-	"Tokype/evalut"
+	"Tokype/evaluator"
 	"Tokype/value"
 )
 
@@ -62,8 +62,12 @@ func (o *Optimizer) optimizeControlFlow(node ast.Node) ast.Node {
 }
 
 func (o *Optimizer) simplifyIf(ifExpr *ast.IfExpression) ast.Node {
-	tempEnv := evalut.NewEnvironment()
-	result := evalut.Eval(ifExpr.Condition, tempEnv)
+	if o.hasUserFunctionCalls(ifExpr.Condition) {
+		return ifExpr
+	}
+
+	tempEnv := evaluator.NewEnvironment()
+	result := evaluator.Eval(ifExpr.Condition, tempEnv)
 
 	if result.Type == value.ValBool && !o.hasVariables(ifExpr.Condition) {
 		if result.Bool {
@@ -73,7 +77,10 @@ func (o *Optimizer) simplifyIf(ifExpr *ast.IfExpression) ast.Node {
 			return &ast.BlockStatement{Statements: []ast.Node{}}
 		} else {
 			for _, elif := range ifExpr.Alternative {
-				elifResult := evalut.Eval(elif.Condition, tempEnv)
+				if o.hasUserFunctionCalls(elif.Condition) {
+					return ifExpr
+				}
+				elifResult := evaluator.Eval(elif.Condition, tempEnv)
 				if elifResult.Type == value.ValBool && elifResult.Bool && !o.hasVariables(elif.Condition) {
 					if elif.Consequence != nil {
 						return elif.Consequence
@@ -103,9 +110,9 @@ func (o *Optimizer) simplifyFor(forStmt *ast.ForStatement) ast.Node {
 	if len(forStmt.Body.Statements) == 1 {
 		if assign, ok := forStmt.Body.Statements[0].(*ast.AssignStatement); ok {
 			if forStmt.Initialization.Name.Value == assign.Name.Value {
-				env := evalut.NewEnvironment()
-				env.Set(forStmt.Initialization.Name.Value, evalut.Eval(forStmt.Initialization.Value, env))
-				evalut.Eval(assign, env)
+				env := evaluator.NewEnvironment()
+				env.Set(forStmt.Initialization.Name.Value, evaluator.Eval(forStmt.Initialization.Value, env))
+				evaluator.Eval(assign, env)
 
 				if val, ok := env.Get(forStmt.Initialization.Name.Value); ok {
 					newInit := &ast.AssignStatement{
@@ -134,8 +141,12 @@ func (o *Optimizer) simplifyFor(forStmt *ast.ForStatement) ast.Node {
 }
 
 func (o *Optimizer) simplifyWhile(whileStmt *ast.WhileStatement) ast.Node {
-	tempEnv := evalut.NewEnvironment()
-	result := evalut.Eval(whileStmt.Condition, tempEnv)
+	if o.hasUserFunctionCalls(whileStmt.Condition) {
+		return whileStmt
+	}
+
+	tempEnv := evaluator.NewEnvironment()
+	result := evaluator.Eval(whileStmt.Condition, tempEnv)
 
 	if result.Type == value.ValBool && !o.hasVariables(whileStmt.Condition) {
 		if !result.Bool {
