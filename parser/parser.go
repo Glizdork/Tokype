@@ -78,7 +78,11 @@ func (p *Parser) expectPeek(t token.TokenType) bool {
 }
 
 func (p *Parser) peekError(t token.TokenType) {
-	msg := fmt.Sprintf("expected next token to be %s, got %s instead", t, p.peekToken.Type)
+	msg := fmt.Sprintf("line %d, column %d: expected next token to be %s, got %s instead",
+		p.peekToken.Line,
+		p.peekToken.Column,
+		t,
+		p.peekToken.Type)
 	p.errors = append(p.errors, msg)
 }
 
@@ -116,6 +120,8 @@ func (p *Parser) parseStatement() ast.Node {
 		if p.peekTokenIs(token.DOTLBRACKET) {
 			return p.parseAssignIndexStatement()
 		}
+	case token.INCLUDE:
+		return p.parseIncludeStatement()
 	}
 	return p.parseExpression(LOWEST)
 }
@@ -151,7 +157,9 @@ func (p *Parser) parseAssignIndexStatement() ast.Node {
 			Left:  &ast.Identifier{Value: varName},
 			Index: index,
 		},
-		Value: value,
+		Value:  value,
+		Line:   p.curToken.Line,
+		Column: p.curToken.Column,
 	}
 }
 
@@ -206,10 +214,39 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 
 	for !p.curTokenIs(token.END) && !p.curTokenIs(token.ELIF) &&
 		!p.curTokenIs(token.ELSE) && !p.curTokenIs(token.EOF) {
+
+		if p.curTokenIs(token.IF) {
+			stmt := p.parseIfStatement()
+			if stmt != nil {
+				block.Statements = append(block.Statements, stmt)
+			}
+			p.nextToken()
+			continue
+		}
+
+		if p.curTokenIs(token.FOR) {
+			stmt := p.parseForStatement()
+			if stmt != nil {
+				block.Statements = append(block.Statements, stmt)
+			}
+			p.nextToken()
+			continue
+		}
+
+		if p.curTokenIs(token.WHILE) {
+			stmt := p.parseWhileStatement()
+			if stmt != nil {
+				block.Statements = append(block.Statements, stmt)
+			}
+			p.nextToken()
+			continue
+		}
+
 		stmt := p.parseStatement()
 		if stmt != nil {
 			block.Statements = append(block.Statements, stmt)
 		}
+
 		if !p.curTokenIs(token.END) && !p.curTokenIs(token.ELIF) &&
 			!p.curTokenIs(token.ELSE) && !p.curTokenIs(token.EOF) {
 			p.nextToken()
@@ -284,20 +321,40 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 
 	switch p.curToken.Type {
 	case token.IDENT:
-		leftExp = &ast.Identifier{Value: p.curToken.Literal}
+		leftExp = &ast.Identifier{
+			Value:  p.curToken.Literal,
+			Line:   p.curToken.Line,
+			Column: p.curToken.Column,
+		}
 	case token.INT:
 		value, _ := strconv.ParseInt(p.curToken.Literal, 0, 64)
 		leftExp = &ast.IntegerLiteral{Value: value}
+	case token.FLOAT:
+		value, _ := strconv.ParseFloat(p.curToken.Literal, 64)
+		leftExp = &ast.FloatLiteral{Value: value}
+	case token.MINUS:
+		line := p.curToken.Line
+		column := p.curToken.Column
+		p.nextToken()
+		right := p.parseExpression(PREFIX_PRIO)
+		leftExp = &ast.PrefixExpression{
+			Operator: "-",
+			Right:    right,
+			Line:     line,
+			Column:   column,
+		}
 	case token.STRING:
 		leftExp = &ast.StringLiteral{Value: p.curToken.Literal}
 	case token.TRUE:
 		leftExp = &ast.BooleanLiteral{Value: true}
 	case token.FALSE:
 		leftExp = &ast.BooleanLiteral{Value: false}
+	case token.NULL:
+		leftExp = &ast.NullLiteral{}
 	case token.OPENLIST:
-		return p.parseListLiteral()
+		leftExp = p.parseListLiteral()
 	case token.OPENMAP:
-		return p.parseMapLiteral()
+		leftExp = p.parseMapLiteral()
 	case token.LPAREN:
 		p.nextToken()
 		exp := p.parseExpression(LOWEST)
@@ -321,6 +378,20 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 			token.EQ, token.NOT_EQ, token.LT, token.GT, token.LTE, token.GTE:
 			p.nextToken()
 			leftExp = p.parseInfixExpression(leftExp)
+		case token.DOT:
+			p.nextToken()
+			p.nextToken()
+			right := p.parseExpression(PREFIX_PRIO)
+			if ident, ok := right.(*ast.Identifier); ok {
+				leftExp = &ast.DotExpression{
+					Left:  leftExp,
+					Right: ident,
+				}
+			} else {
+				p.errors = append(p.errors, fmt.Sprintf("line %d, column %d: expected identifier after '.'",
+					p.curToken.Line, p.curToken.Column))
+				return nil
+			}
 		default:
 			return leftExp
 		}
@@ -332,6 +403,8 @@ func (p *Parser) parseInfixExpression(left ast.Expression) ast.Expression {
 	expression := &ast.InfixExpression{
 		Left:     left,
 		Operator: p.curToken.Literal,
+		Line:     p.curToken.Line,
+		Column:   p.curToken.Column,
 	}
 	precedence := p.curPrecedence()
 	p.nextToken()
@@ -359,11 +432,13 @@ func (p *Parser) foldConstants(expr ast.Expression) ast.Expression {
 		case "*":
 			result = leftInt.Value * rightInt.Value
 		case "/":
-			if rightInt.Value != 0 {
-				result = leftInt.Value / rightInt.Value
-			} else {
+			if rightInt.Value == 0 {
 				return expr
 			}
+			if leftInt.Value%rightInt.Value == 0 {
+				return &ast.IntegerLiteral{Value: leftInt.Value / rightInt.Value}
+			}
+			return &ast.FloatLiteral{Value: float64(leftInt.Value) / float64(rightInt.Value)}
 		default:
 			return expr
 		}
@@ -398,7 +473,12 @@ func (p *Parser) foldConstants(expr ast.Expression) ast.Expression {
 }
 
 func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
-	exp := &ast.CallExpression{Function: function, Arguments: []ast.Expression{}}
+	exp := &ast.CallExpression{
+		Function:  function,
+		Arguments: []ast.Expression{},
+		Line:      p.curToken.Line,
+		Column:    p.curToken.Column,
+	}
 
 	if p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
@@ -437,9 +517,11 @@ func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
 			return nil
 		}
 		return &ast.SliceExpression{
-			Left:  left,
-			Start: start,
-			End:   end,
+			Left:   left,
+			Start:  start,
+			End:    end,
+			Line:   p.curToken.Line,
+			Column: p.curToken.Column,
 		}
 	}
 
@@ -535,6 +617,13 @@ func (p *Parser) parseForStatement() ast.Node {
 	p.nextToken()
 	endVal := p.parseExpression(LOWEST)
 
+	var stepVal ast.Expression
+	if p.peekTokenIs(token.COMMA) {
+		p.nextToken()
+		p.nextToken()
+		stepVal = p.parseExpression(LOWEST)
+	}
+
 	init := &ast.AssignStatement{
 		Name:  &ast.Identifier{Value: varName},
 		Value: startVal,
@@ -546,12 +635,17 @@ func (p *Parser) parseForStatement() ast.Node {
 		Right:    endVal,
 	}
 
+	step := ast.Expression(&ast.IntegerLiteral{Value: 1})
+	if stepVal != nil {
+		step = stepVal
+	}
+
 	update := &ast.AssignStatement{
 		Name: &ast.Identifier{Value: varName},
 		Value: &ast.InfixExpression{
 			Left:     &ast.Identifier{Value: varName},
 			Operator: "+",
-			Right:    &ast.IntegerLiteral{Value: 1},
+			Right:    step,
 		},
 	}
 
@@ -572,6 +666,7 @@ func (p *Parser) parseForStatement() ast.Node {
 		Condition:      condition,
 		Update:         update,
 		Body:           body,
+		Step:           stepVal,
 	}
 }
 
@@ -604,6 +699,36 @@ func (p *Parser) parseReturnStatement() ast.Node {
 	p.nextToken()
 	stmt.Value = p.parseExpression(LOWEST)
 	return stmt
+}
+
+func (p *Parser) parseIncludeStatement() ast.Node {
+	p.nextToken()
+
+	if !p.curTokenIs(token.STRING) {
+		p.errors = append(p.errors, fmt.Sprintf("line %d, column %d: expected string after 'include'",
+			p.curToken.Line, p.curToken.Column))
+		return nil
+	}
+
+	path := p.curToken.Literal
+	namespace := ""
+
+	if p.peekTokenIs(token.AS) {
+		p.nextToken()
+		p.nextToken()
+
+		if !p.curTokenIs(token.IDENT) {
+			p.errors = append(p.errors, fmt.Sprintf("line %d, column %d: expected identifier after 'as'",
+				p.curToken.Line, p.curToken.Column))
+			return nil
+		}
+		namespace = p.curToken.Literal
+	}
+
+	return &ast.IncludeStatement{
+		Path:      path,
+		Namespace: namespace,
+	}
 }
 
 func (p *Parser) peekPrecedence() int {
