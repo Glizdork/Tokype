@@ -1,0 +1,13 @@
+funct main():
+    n = 10000000
+    sum = "база"
+    start = get_time()
+    for i = 1, n:
+        sum = sum + i
+    end
+    stop = get_time()
+    print(sum)
+    print(stop - start + " sec.")
+end
+
+main()

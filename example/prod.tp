@@ -1,0 +1,12 @@
+funct main():
+    prod = 1
+    start = get_time()
+    for i = 1, 20:
+        prod = prod * i
+    end
+    stop = get_time()
+    print(prod)
+    print(stop - start + " sec.")
+end
+
+main()
