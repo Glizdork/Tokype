@@ -13,6 +13,7 @@ const (
 	ValFloat
 	ValBool
 	ValString
+	ValNull
 	ValList
 	ValMap
 	ValFunction
@@ -31,6 +32,8 @@ func (vt ValueType) String() string {
 		return "bool"
 	case ValString:
 		return "string"
+	case ValNull:
+		return "null"
 	case ValList:
 		return "list"
 	case ValMap:
@@ -45,13 +48,12 @@ func (vt ValueType) String() string {
 }
 
 type Value struct {
-	Type   ValueType
-	Int    int64
-	Int128 [2]int64
-	Float  float64
-	Bool   bool
-	Str    string
-	Obj    interface{}
+	Type  ValueType
+	Int   int64
+	Float float64
+	Bool  bool
+	Str   string
+	Obj   interface{}
 }
 
 func (v Value) String() string {
@@ -66,6 +68,8 @@ func (v Value) String() string {
 		return fmt.Sprintf("%t", v.Bool)
 	case ValString:
 		return v.Str
+	case ValNull:
+		return "null"
 	case ValList:
 		if list, ok := v.Obj.(*ListObject); ok {
 			return list.Inspect()
@@ -153,6 +157,10 @@ func NewMapValue(v *MapObject) Value {
 	return Value{Type: ValMap, Obj: v}
 }
 
+func NewNullValue() Value {
+	return Value{Type: ValNull}
+}
+
 func NewFunctionValue(v *FunctionObject) Value {
 	return Value{Type: ValFunction, Obj: v}
 }
@@ -191,6 +199,14 @@ func (v Value) IsList() bool {
 
 func (v Value) IsMap() bool {
 	return v.Type == ValMap
+}
+
+func Null() Value {
+	return Value{Type: ValNull}
+}
+
+func (v Value) IsNull() bool {
+	return v.Type == ValNull
 }
 
 func (v Value) IsFunction() bool {
