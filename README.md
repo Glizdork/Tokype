@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Tokype Logo" width="250" />
+  <img src="assets/logo.png" alt="Tokype Logo" width="300" />
   <h1>Tokype</h1>
   <p><strong>A simple, expressive, AST-interpreted programming language with static loop-folding optimization.</strong></p>
   <p><em>This language is held together by the creator's luck.</em></p>
