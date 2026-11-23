@@ -1,7 +1,10 @@
 version: 2
 
 builds:
-  - env:
+  - id: tokype
+    main: .
+    binary: tokype
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
@@ -12,7 +15,21 @@ builds:
       - arm64
     ldflags:
       - -s -w
-
+  - id: tokyport
+    main: ./Tokyport
+    binary: tokyport
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+  
 archives:
   - format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -22,10 +39,3 @@ archives:
 
 checksum:
   name_template: "checksums.txt"
-
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
