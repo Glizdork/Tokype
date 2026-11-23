@@ -5,7 +5,7 @@
   <p><em>This language is held together by the creator's luck.</em></p>
 
   <p>
-    <a href="https://github.com/Glizdork/Tokype/tags"><img src="https://img.shields.io/github/v/tag/Glizdork/Tokype" alt="Version" /></a>
+    <a href="https://github.com/Glizdork/Tokype/releases"><img src="https://img.shields.io/github/v/tag/Glizdork/Tokype" alt="Version" /></a>
     <img src="https://img.shields.io/github/go-mod/go-version/Glizdork/Tokype" alt="Go Version" />
     <a href="License"><img src="https://img.shields.io/github/license/Glizdork/Tokype" alt="License" /></a>
   </p>
