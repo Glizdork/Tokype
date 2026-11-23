@@ -1,109 +1,107 @@
 # TitanJerboa
 
-**TitanJerboa** is an AST optimizer for the Tokype language. The name: **Titan** (powerful) + **Jerboa** (a fast little rodent). It runs before execution: it rewrites the AST so the program computes faster.
+**TitanJerboa** (*Titan* — powerful, *Jerboa* — a fast little rodent) is the static AST optimizer for the Tokype programming language. It executes prior to runtime evaluation, rewriting and simplifying the Abstract Syntax Tree (AST) to eliminate redundant computations and reduce algorithmic complexity.
 
-## What it does
+---
 
-**Constant folding** — evaluates expressions at optimization time:
-```tokype
-x = 7 + 6 + 5   // x = 18
-```
+## Optimization Passes & Features
 
-**Formulas instead of loops** — replaces loops with mathematical formulas (O(n) O(1)):
-```tokype
-for i = 1, 1000000: sum = sum + i end   // sum = 500000500000
-```
-Supports: `sum i`, `sum i*i`, `sum i*i*i`, `prod i`, `sum k`, `sum k*i`, steps (`for i = 1, n, 2`), reverse steps.
+### 1. Loop Folding (Closed-Form Formula Replacement)
+TitanJerboa analyzes `for` loops and replaces supported accumulation patterns with closed-form mathematical formulas, reducing time complexity from **$O(n)$ to $O(1)$**.
 
-**Dynamic formulas** — if the bounds are unknown (`input()`), the loop is replaced with a formula in the AST:
-```tokype
-n = input()
-for i = 1, n: sum = sum + i end   // sum = n * (n + 1) / 2
-```
+* **Static Loop Folding:** Evaluates constant-bound loops directly at optimization time.
+  ```tokype
+  for i = 1, 1000000: sum = sum + i end
+  // Rewritten to: sum = 500000500000
+  ```
+* **Dynamic Loop Folding:** When bounds depend on runtime values (e.g., `input()`), TitanJerboa injects the closed-form formula directly into the AST.
+  ```tokype
+  n = input()
+  for i = 1, n: sum = sum + i end
+  // Rewritten to: sum = n * (n + 1) / 2
+  ```
+* **Supported Patterns:** `sum i`, `sum i*i`, `sum i*i*i`, `prod i`, `sum k`, `sum k*i`, custom step increments (`for i = 1, n, 2`), and reverse steps.
 
-**Recursion memoization** — evaluates recursive functions with a constant argument iteratively:
-```tokype
-fib(92)   // 7540113804746346429, 0 sec (instead of forever)
-```
-
-**Pure function evaluation** — functions without side effects and with constant arguments are computed in advance:
-```tokype
-x = square(5)   // x = 25
-```
-
-**Dead code elimination**:
-```tokype
-x = x + 0   // removed
-x = x       // removed
-x = x * 0   // x = 0
-```
-
-**Algebraic rules**:
-```tokype
-x - x        // 0
-x / x        // 1
-(x * y) / y  // x
-x * 0        // 0
-x * 1        // x
-x + 0        // x
-```
-
-**Function inlining** — embeds the function body at the call site with argument substitution.
-
-**Loop bound substitution** — replaces known variables in `for` bounds with constants.
-
-## Folding into `repeat`
-
-TitanJerboa detects loops that just fill a list with a constant and replaces them with a single `repeat` call:
+### 2. List Allocation Folding (`repeat`)
+Loops that sequentially populate a list with a constant value are collapsed into a single `repeat` call ($O(n) \rightarrow O(1)$):
 
 ```tokype
 arr = []
 for i = 1, 1000000:
     push(arr, 42)
 end
-// → arr = repeat(42, 1000000)
+// Rewritten to: arr = repeat(42, 1000000)
 ```
 
-Complexity drops from O(n) to O(1).
+* **Trigger Conditions:** The loop body contains strictly one `push` call targeting the same list, the pushed value is a constant, and loop bounds are static constants. (Does not trigger if the value depends on the loop counter, e.g., `push(arr, i * 2)`).
+* **Adaptive Memory Representation:**
+  * `count <= 100,000` → allocates a standard mutable `ListObject` (supports `push`, `pop`, indexing).
+  * `count > 100,000` → returns a lazy `RepeatObject` to preserve memory while maintaining $O(1)$ indexing.
 
-**Triggers when:** the loop body is exactly one `push`, the first argument is the same list, the second argument is a constant, and the loop bounds are constants.
+### 3. Function Optimizations
+* **Recursion Memoization & Iterative Evaluation:** Recursive functions invoked with constant arguments are evaluated iteratively during the AST optimization phase:
+  ```tokype
+  fib(92)   // Evaluated to 7540113804746346429 in 0s
+  ```
+* **Pure Function Pre-Evaluation:** Side-effect-free functions called with constant arguments are resolved ahead of execution (`square(5)` $\rightarrow$ `25`).
+* **Function Inlining:** Embeds small function bodies directly at call sites with argument substitution to eliminate call overhead.
 
-**Does not trigger** when the value depends on the counter (`push(arr, i * 2)`), when the body has more than one statement, or when the bounds are variables.
+### 4. Constant Folding, Algebraic Simplification & DCE
+* **Constant Folding & Loop Bound Substitution:** Evaluates static expressions (`7 + 6 + 5` $\rightarrow$ `18`) and propagates known variables into `for` loop bounds.
+* **Algebraic Identities:**
 
-**What `repeat` returns:**
-- small `count` (≤ 100000) → real list (`ListObject`) — supports `push`, `pop`, indexing
-- large `count` → lazy `RepeatObject` — saves memory, indexing still works
+  | Original Expression | Simplified AST |
+  | :--- | :--- |
+  | `x - x` | `0` |
+  | `x / x` | `1` |
+  | `(x * y) / y` | `x` |
+  | `x * 0` | `0` |
+  | `x * 1` | `x` |
+  | `x + 0` | `x` |
+* **Dead Code Elimination (DCE):** Strips no-op assignments (`x = x`, `x = x + 0`), simplifies zero multiplications (`x = x * 0` $\rightarrow$ `x = 0`), and removes unreachable branches or empty functions.
 
-## Pass order
+---
 
-1. `resolveIncludes` — expand `include`
-2. `collectFunctions` + `collectTypes` — gather functions and types
-3. `inlineFunctionCalls` — inlining
-4. `constantFold` — constant folding
-5. `substituteForBounds` — bound substitution
-6. `constantFold` — second fold
-7. `foldDynamicLoops` — dynamic formulas
-8. `foldFunctionCalls` — pure function and recursion evaluation
-9. `optimizeControlFlow` / `removeDeadCode` — cleanup
-10. `removeEmptyFunctions` — remove empty functions
+## Optimization Pipeline (Pass Order)
 
-## Results
+TitanJerboa executes a deterministic 10-stage pass pipeline over the AST:
 
-| Test | Tokype | C++ (-O3) | Python |
-|------|--------|---|--------|
-| `sum i (example/benchmark.tp)` | **0 sec** | **0 sec** | 0.5 sec |
-| `fib(92) (example/fib.tp)` | **0 sec** | forever | forever |
-| `prod i (example/prod.tp)` (20) | **0 sec** | **0 sec** | **0 sec** |
+| Stage | Pass Name | Purpose |
+| :--- | :--- | :--- |
+| **1** | `resolveIncludes` | Expands `include` directives into a unified AST |
+| **2** | `collectFunctions` + `collectTypes` | Indexes user-defined functions and type declarations |
+| **3** | `inlineFunctionCalls` | Inlines eligible function calls at call sites |
+| **4** | `constantFold` | First pass of constant expression evaluation |
+| **5** | `substituteForBounds` | Propagates constant variables into `for` loop boundaries |
+| **6** | `constantFold` | Second pass to fold expressions exposed after bound substitution |
+| **7** | `foldDynamicLoops` | Replaces symbolic loops with closed-form AST formulas |
+| **8** | `foldFunctionCalls` | Pre-evaluates pure functions and memoized recursive calls |
+| **9** | `optimizeControlFlow` / `removeDeadCode` | Eliminates dead branches and redundant assignments |
+| **10** | `removeEmptyFunctions` | Strips unused/empty function declarations |
 
-For math loops Tokype is faster than compiled languages — because it replaces the loop with a formula instead of running it.
+---
 
-## Limitations
+## Benchmarks
 
-- String concatenation in a loop folds as a number (`"base" + i` → `"base55"`)
-- `int64` overflow
-- Not all loop patterns are supported
+Even as a pure tree-walking AST interpreter without compilation, Tokype outperforms AOT-compiled languages on closed-form mathematical workloads by eliminating the loop execution phase entirely:
 
-## Documentation
+| Benchmark | Tokype | C++ (`-O3`) | Python 3 |
+| :--- | :---: | :---: | :---: |
+| `sum i` ([example/benchmark.tp](example/benchmark.tp)) | **~0 sec** | **~0 sec** | ~0.5 sec |
+| `fib(92)` ([example/fib.tp](example/fib.tp)) | **~0 sec** | Timeout | Timeout |
+| `prod i` (`n = 20`, [example/prod.tp](example/prod.tp)) | **~0 sec** | **~0 sec** | **~0 sec** |
 
-- [**README.md**](README.md) — overview and quick start
-- [**SPEC.md**](SPEC.md) — — full syntax reference with examples
+---
+
+## Known Limitations
+
+* **Type Coercion in Loop Folding:** String concatenation patterns inside supported accumulation loops may fold numerically (e.g., `"base" + i` $\rightarrow$ `"base55"`).
+* **Integer Overflow:** Closed-form arithmetic relies on 64-bit signed integers (`int64`) and does not automatically promote to arbitrary-precision `BigInt`.
+* **Pattern Coverage:** Complex loop bodies with nested conditionals, mutations of external state, or non-polynomial recurrences fall back to standard AST interpretation.
+
+---
+
+## Related Documentation
+
+* [README.md](README.md) — project overview, installation, and CLI usage.
+* [SPEC.md](SPEC.md) — full language syntax reference with examples.
